@@ -6,7 +6,7 @@ authors = [
 ]
 description = "Fish Speech"
 readme = "README.md"
-requires-python = ">=3.10"
+requires-python = ">=3.12,<3.13"
 keywords = ["TTS", "Speech"]
 license = {text = "Apache-2.0"}
 classifiers = [
@@ -44,18 +44,34 @@ dependencies = [
     "pydantic==2.9.2",
     "cachetools",
     "descript-audio-codec",
-    "descript-audiotools"
+    "descript-audiotools",
+    "torch>=2.7.0",
+    "torchaudio>=2.7.0",
 ]
 
-[project.optional-dependencies]
-stable = [
-    "torch>=2.5.1",
-    "torchaudio",
+[[tool.uv.index]]
+name = "pytorch-cpu"
+url = "https://download.pytorch.org/whl/cpu"
+explicit = true
+
+[[tool.uv.index]]
+name = "pytorch-cuda"
+url = "https://download.pytorch.org/whl/cu128"
+explicit = true
+
+[tool.uv.sources]
+torch = [
+    { index = "pytorch-cpu", marker = "sys_platform == 'macos'" },
+    { index = "pytorch-cuda", marker = "sys_platform == 'linux' or sys_platform == 'win32'" },
 ]
+torchaudio = [
+    { index = "pytorch-cpu", marker = "sys_platform == 'macos'" },
+    { index = "pytorch-cuda", marker = "sys_platform == 'linux' or sys_platform == 'win32'" },
+]
+
+[tool.uv]
+package = false
 
 [build-system]
-requires = ["setuptools", "setuptools-scm"]
-build-backend = "setuptools.build_meta"
-
-[tool.setuptools]
-packages = ["fish_speech", "tools"]
+requires = ["hatchling"]
+build-backend = "hatchling.build"

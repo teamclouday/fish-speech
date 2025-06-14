@@ -1,0 +1,19 @@
+name: fish-speech
+services:
+  api:
+    build:
+      context: .
+      dockerfile: dockerfile
+      args:
+        - HF_TOKEN=${HF_TOKEN}
+    env_file:
+      - .env
+    ports:
+      - "8080:8080"
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu]

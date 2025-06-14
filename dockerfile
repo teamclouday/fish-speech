@@ -1,20 +1,16 @@
-FROM python:3.12-slim-bookworm AS stage-1
-ARG TARGETARCH
+FROM nvidia/cuda:12.8.1-cudnn-runtime-ubuntu22.04 AS base
 
-ARG HUGGINGFACE_MODEL=fish-speech-1.5
-ARG HF_ENDPOINT=https://huggingface.co
-
-WORKDIR /opt/fish-speech
-
-RUN set -ex \
-    && pip install huggingface_hub \
-    && HF_ENDPOINT=${HF_ENDPOINT} huggingface-cli download --resume-download fishaudio/${HUGGINGFACE_MODEL} --local-dir checkpoints/${HUGGINGFACE_MODEL}
-
-FROM python:3.12-slim-bookworm
-ARG TARGETARCH
+ENV PYTHONUNBUFFERED=1 \
+    PIP_DISABLE_PIP_VERSION_CHECK=on \
+    PIP_DEFAULT_TIMEOUT=100 \
+    DEBIAN_FRONTEND=noninteractive \
+    VIRTUAL_ENV=/opt/fish-speech/.venv \
+    LD_LIBRARY_PATH="/usr/local/cuda/lib64:/usr/lib/x86_64-linux-gnu:$LD_LIBRARY_PATH"
 
 ARG DEPENDENCIES="  \
     ca-certificates \
+    curl \
+    wget \
     libsox-dev \
     build-essential \
     cmake \
@@ -24,27 +20,56 @@ ARG DEPENDENCIES="  \
     libportaudiocpp0 \
     ffmpeg"
 
-RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \
-    --mount=type=cache,target=/var/lib/apt,sharing=locked \
-    set -ex \
-    && rm -f /etc/apt/apt.conf.d/docker-clean \
-    && echo 'Binary::apt::APT::Keep-Downloaded-Packages "true";' >/etc/apt/apt.conf.d/keep-cache \
-    && apt-get update \
-    && apt-get -y install --no-install-recommends ${DEPENDENCIES} \
-    && echo "no" | dpkg-reconfigure dash
+RUN apt-get update && \
+    apt-get install -y --no-install-recommends ${DEPENDENCIES} && \
+    apt-get clean
+
+ADD https://astral.sh/uv/install.sh /uv-installer.sh
+
+RUN sh /uv-installer.sh && rm /uv-installer.sh
+
+ENV PATH="/root/.local/bin/:$PATH"
+
+RUN uv python install 3.12
+
+
+
+FROM base AS builder
+
+WORKDIR /opt/fish-speech
+COPY pyproject.toml uv.lock .
+
+RUN uv sync --locked
+RUN uv pip install --no-cache-dir huggingface_hub
+
+
+
+FROM base AS model
+
+COPY --from=builder /opt/fish-speech/.venv /opt/fish-speech/.venv
 
 WORKDIR /opt/fish-speech
 
+ARG HF_TOKEN
+ENV HF_TOKEN=$HF_TOKEN
+
+RUN uv run huggingface-cli download --resume-download fishaudio/openaudio-s1-mini \
+    --local-dir checkpoints/openaudio-s1-mini \
+    --repo-type model
+
+
+
+FROM base AS runtime
+
+COPY --from=builder /opt/fish-speech/.venv /opt/fish-speech/.venv
+COPY --from=model /opt/fish-speech/checkpoints /opt/fish-speech/checkpoints
+
+WORKDIR /opt/fish-speech
 COPY . .
 
-RUN --mount=type=cache,target=/root/.cache,sharing=locked \
-    set -ex \
-    && pip install -e .[stable]
+EXPOSE 8080
 
-COPY --from=stage-1 /opt/fish-speech/checkpoints /opt/fish-speech/checkpoints
-
-ENV GRADIO_SERVER_NAME="0.0.0.0"
-
-EXPOSE 7860
-
-CMD ["./entrypoint.sh"]
+CMD ["uv", "run", "tools/api_server.py", \
+    "--mode", "tts", \
+    "--listen", "localhost:8080", \
+    "--compile"]
