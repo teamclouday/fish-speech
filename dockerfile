@@ -67,9 +67,7 @@ COPY --from=model /opt/fish-speech/checkpoints /opt/fish-speech/checkpoints
 WORKDIR /opt/fish-speech
 COPY . .
 
-EXPOSE 8080
-
 CMD ["uv", "run", "tools/api_server.py", \
     "--mode", "tts", \
-    "--listen", "localhost:8080", \
+    "--listen", "0.0.0.0:8000", \
     "--compile"]
